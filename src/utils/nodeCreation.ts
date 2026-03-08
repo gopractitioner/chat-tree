@@ -15,30 +15,30 @@ export const createNodesInOrder = async (
 
   const createChildNodes = (node: OpenAINode) => {
     if (node.children.length === 0) return;
-  
+
     // Recursively finds first descendant with valid content and proper role/recipient
     const findFirstValidDescendant = (currentNode: OpenAINode): OpenAINode | null => {
       if (currentNode.message?.content?.parts?.[0] &&
-          currentNode.message.author.role !== 'system' && 
-          currentNode.message.author.role !== 'tool' &&
-          currentNode.message.recipient === 'all') {
+        currentNode.message.author.role !== 'system' &&
+        currentNode.message.author.role !== 'tool' &&
+        currentNode.message.recipient === 'all') {
         return currentNode;
       }
-  
+
       for (const childId of currentNode.children) {
         const validDescendant = findFirstValidDescendant(mapping[childId]);
         if (validDescendant) return validDescendant;
       }
       return null;
     };
-  
+
     // Filter and map children to only valid descendants
     const validChildren = node.children
       .map(childId => findFirstValidDescendant(mapping[childId]))
       .filter((child): child is OpenAINode => child !== null);
-  
+
     node.children = validChildren.map(child => child.id);
-  
+
     // Process each valid child node
     validChildren.forEach(child => {
       child.parent = node.id;
@@ -59,13 +59,14 @@ export const createNodesInOrder = async (
       child.data = {
         label: content,
         role: role,
-        timestamp: child.message!.create_time ?? undefined,
+        // Store timestamps in milliseconds since epoch for UI consistency
+        timestamp: typeof child.message?.create_time === 'number' ? child.message.create_time * 1000 : undefined,
         id: child.id,
         hidden: true,
         contentType: child.message!.content.content_type,
         model_slug: child.message!.metadata.model_slug ?? undefined
       };
-      
+
       newNodes.push(child);
       // Create edge connecting parent to child
       newEdges.push({
@@ -76,7 +77,7 @@ export const createNodesInOrder = async (
         animated: true,
         style: { stroke: '#000000', strokeWidth: 2 }
       });
-  
+
       createChildNodes(child);
     });
   };
@@ -86,13 +87,13 @@ export const createNodesInOrder = async (
     Object.values(mapping).find(node => !node.parent) as OpenAINode,
     mapping
   );
-  
+
   if (!rootNode) return { nodes: [], edges: [] };
 
   // Initialize root node properties
   let rootLabel = 'Start of your conversation';
-  if (rootNode.message?.content?.parts && rootNode.message.content.parts.length > 0 && 
-      rootNode.message.author.role !== 'system') {
+  if (rootNode.message?.content?.parts && rootNode.message.content.parts.length > 0 &&
+    rootNode.message.author.role !== 'system') {
     rootLabel = rootNode.message.content.parts[0] || 'Empty content';
   }
 
@@ -100,16 +101,17 @@ export const createNodesInOrder = async (
   rootNode.data = {
     label: rootLabel,
     role: rootNode.message?.author?.role || 'system',
-    timestamp: rootNode.message?.create_time ?? undefined,
+    // Store timestamps in milliseconds since epoch for UI consistency
+    timestamp: typeof rootNode.message?.create_time === 'number' ? rootNode.message.create_time * 1000 : undefined,
     id: rootNode.id,
     hidden: true,
     contentType: rootNode.message?.content?.content_type || 'text',
     model_slug: rootNode.message?.metadata?.model_slug ?? undefined
   };
-  
+
   newNodes.push(rootNode);
   createChildNodes(rootNode);
-  
+
   // Update visibility state of nodes
   const existingNodes = await checkNodes(newNodes.map(node => node.id));
   existingNodes.forEach((hidden: boolean, index: number) => {

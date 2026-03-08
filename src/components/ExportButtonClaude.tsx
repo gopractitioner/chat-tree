@@ -13,13 +13,13 @@ export const ExportButtonClaude = ({ nodes, conversationData, className }: Expor
 
   const processMessageContent = (contentBlocks: ClaudeContentBlock[]) => {
     if (!contentBlocks || contentBlocks.length === 0) return '';
-    
+
     return contentBlocks
       .filter(block => block.type === 'text') // Only process text blocks for now
       .map(block => block.text)
       .join('\n\n');
   };
-  
+
   const handleExport = (format: 'markdown' | 'xml' | 'obsidian') => {
     const visibleNodes = nodes
       .filter(node => !node.data?.hidden)
@@ -36,7 +36,7 @@ export const ExportButtonClaude = ({ nodes, conversationData, className }: Expor
       visibleNodes.forEach(node => {
         const role = node.data?.role === 'human' ? 'You' : 'Assistant';
         const messageContent = processMessageContent(node.message?.content || []);
-        const timestamp = node.data?.timestamp ? new Date(node.data.timestamp * 1000).toLocaleString() : '';
+        const timestamp = node.data?.timestamp ? new Date(node.data.timestamp).toLocaleString() : '';
         const model = node.data?.model_slug ? ` (${node.data.model_slug})` : '';
 
         content += `## ${role}${model}\n\n${messageContent}\n\n`;
@@ -56,7 +56,7 @@ export const ExportButtonClaude = ({ nodes, conversationData, className }: Expor
       visibleNodes.forEach(node => {
         const role = node.data?.role === 'human' ? 'You' : 'Assistant';
         const messageContent = processMessageContent(node.message?.content || []);
-        const timestamp = node.data?.timestamp ? new Date(node.data.timestamp * 1000).toLocaleString() : '';
+        const timestamp = node.data?.timestamp ? new Date(node.data.timestamp).toLocaleString() : '';
         const model = node.data?.model_slug ? ` using ${node.data.model_slug}` : '';
 
         if (role === 'You') {
@@ -64,10 +64,10 @@ export const ExportButtonClaude = ({ nodes, conversationData, className }: Expor
         } else {
           content += `>[!note] Assistant${model}\n`;
         }
-        
+
         content += messageContent.split('\n').map(line => `>${line}`).join('\n');
         content += '\n\n';
-        
+
         if (timestamp) {
           content += `^[${timestamp}]\n\n`;
         }
@@ -83,7 +83,7 @@ export const ExportButtonClaude = ({ nodes, conversationData, className }: Expor
       visibleNodes.forEach(node => {
         const role = node.data?.role === 'human' ? 'You' : 'Assistant';
         const messageContent = processMessageContent(node.message?.content || []);
-        const timestamp = node.data?.timestamp ? new Date(node.data.timestamp * 1000).toISOString() : '';
+        const timestamp = node.data?.timestamp ? new Date(node.data.timestamp).toISOString() : '';
         const model = node.data?.model_slug || '';
 
         content += `  <message role="${role}" model="${model}" timestamp="${timestamp}">\n`;

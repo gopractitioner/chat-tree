@@ -25,13 +25,24 @@
     ],
     "host_permissions": [
         "https://chatgpt.com/backend-api/*",
-        "https://claude.ai/api/organizations/*"
+        "https://claude.ai/api/organizations/*",
+        "https://grok.com/*"
     ],
     "content_security_policy": {
         "extension_pages": "script-src 'self'; object-src 'self';"
     },
-    "web_accessible_resources": [{
-        "resources": ["logo16.png", "logo48.png", "logo128.png"],
-        "matches": ["https://chatgpt.com/*", "https://claude.ai/*"]
-    }]
+    "web_accessible_resources": [
+        {
+            "resources": [
+                "logo16.png",
+                "logo48.png",
+                "logo128.png"
+            ],
+            "matches": [
+                "https://chatgpt.com/*",
+                "https://claude.ai/*",
+                "https://grok.com/*"
+            ]
+        }
+    ]
 }

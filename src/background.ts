@@ -1,7 +1,38 @@
 // Global variables for API endpoints and IDs
 const CHATGPT_ORIGIN = 'https://chatgpt.com';
 const CLAUDE_ORIGIN = 'https://claude.ai';
+const GROK_ORIGIN = 'https://grok.com';
 let claudeOrgId: string | null = null;
+
+/** Normalize raw Grok API response to GrokConversation shape. */
+function normalizeGrokResponse(raw: any) {
+  // Expect shape: { conversationId, responses: [{ responseId, parentResponseId?, sender, message, createTime, ... }] }
+  const responses = Array.isArray(raw?.responses) ? raw.responses : [];
+
+  const grokMessages = responses.map((r: any) => {
+    const id = r?.responseId ?? r?.id ?? '';
+    const parentId = r?.parentResponseId ? r.parentResponseId : 'root';
+    return {
+      id,
+      parent_id: parentId,
+      role: r?.sender === 'human' ? 'user' : (r?.sender ?? 'assistant'),
+      content: r?.message ?? '',
+      created_at: r?.createTime,
+      updated_at: undefined,
+      ...r
+    };
+  });
+
+  return {
+    id: raw?.conversationId ?? raw?.id ?? raw?.uuid ?? '',
+    title: '',
+    name: '',
+    created_at: undefined,
+    updated_at: undefined,
+    grok_messages: grokMessages,
+    ...raw
+  };
+}
 
 // Function to save headers to chrome.storage
 function saveRequestHeaders(headers: chrome.webRequest.HttpHeader[]) {
@@ -64,7 +95,7 @@ function captureClaudeOrgId() {
         }
       }
     },
-    { 
+    {
       urls: [CLAUDE_ORG_PATTERN],
       types: ["xmlhttprequest"] as chrome.webRequest.ResourceType[]
     }
@@ -79,7 +110,7 @@ chrome.runtime.onMessage.addListener(
         sendResponse({ headers });
       });
       return true;
-    } 
+    }
     else if (request.action === "fetchConversationHistory") {
       fetchConversationHistory()
         .then(data => {
@@ -98,7 +129,7 @@ chrome.runtime.onMessage.addListener(
           sendResponse({ success: false, error: "Could not get current tab URL" });
           return;
         }
-        
+
         const url = new URL(tabs[0].url);
         if (url.origin === CHATGPT_ORIGIN) {
           checkNodesExistence(request.nodeIds)
@@ -120,11 +151,11 @@ chrome.runtime.onMessage.addListener(
           sendResponse({ success: false, error: "Could not get current tab URL" });
           return;
         }
-        
+
         const url = new URL(tabs[0].url);
         if (url.origin === CLAUDE_ORIGIN) {
-        
-      
+
+
           if (!request.nodeTexts || !Array.isArray(request.nodeTexts)) {
             console.error('Invalid nodeTexts:', request.nodeTexts);
             sendResponse({ success: false, error: "Invalid nodeTexts provided" });
@@ -149,10 +180,10 @@ chrome.runtime.onMessage.addListener(
           await editMessage(request.messageId, request.message);
           sendResponse({ success: true, completed: true });
         } catch (error: any) {
-          sendResponse({ 
-            success: false, 
-            completed: false, 
-            error: error.message 
+          sendResponse({
+            success: false,
+            completed: false,
+            error: error.message
           });
         }
       })();
@@ -164,10 +195,10 @@ chrome.runtime.onMessage.addListener(
           await respondToMessage(request.childrenIds, request.message);
           sendResponse({ success: true, completed: true });
         } catch (error: any) {
-          sendResponse({ 
-            success: false, 
-            completed: false, 
-            error: error.message 
+          sendResponse({
+            success: false,
+            completed: false,
+            error: error.message
           });
         }
       })();
@@ -178,10 +209,10 @@ chrome.runtime.onMessage.addListener(
           await selectBranch(request.steps);
           sendResponse({ success: true, completed: true });
         } catch (error: any) {
-          sendResponse({ 
-            success: false, 
-            completed: false, 
-            error: error.message 
+          sendResponse({
+            success: false,
+            completed: false,
+            error: error.message
           });
         }
       })();
@@ -192,10 +223,10 @@ chrome.runtime.onMessage.addListener(
           await selectBranchClaude(request.steps);
           sendResponse({ success: true, completed: true });
         } catch (error: any) {
-          sendResponse({ 
-            success: false, 
-            completed: false, 
-            error: error.message 
+          sendResponse({
+            success: false,
+            completed: false,
+            error: error.message
           });
         }
       })();
@@ -208,6 +239,44 @@ chrome.runtime.onMessage.addListener(
 
     } else if (request.action === "goToTargetClaude") {
       goToTargetClaude(request.targetId);
+      sendResponse({ success: true });
+      return true;
+    } else if (request.action === "checkNodesGrok") {
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (!tabs[0]?.url) {
+          sendResponse({ success: false, error: "Could not get current tab URL" });
+          return;
+        }
+        const url = new URL(tabs[0].url);
+        if (url.origin === GROK_ORIGIN) {
+          if (!request.nodeTexts || !Array.isArray(request.nodeTexts)) {
+            sendResponse({ success: false, error: "Invalid nodeTexts provided" });
+            return;
+          }
+          checkNodesExistenceGrok(request.nodeTexts)
+            .then(existingNodes => sendResponse({ success: true, existingNodes }))
+            .catch(error => sendResponse({ success: false, error: error.message }));
+        } else {
+          sendResponse({ success: false, error: "Invalid origin for Grok check" });
+        }
+      });
+      return true;
+    } else if (request.action === "executeStepsGrok") {
+      (async () => {
+        try {
+          if (!Array.isArray(request.steps)) {
+            sendResponse({ success: false, completed: false, error: 'Invalid or missing steps' });
+            return;
+          }
+          await selectBranchGrok(request.steps);
+          sendResponse({ success: true, completed: true });
+        } catch (error: any) {
+          sendResponse({ success: false, completed: false, error: error.message });
+        }
+      })();
+      return true;
+    } else if (request.action === "goToTargetGrok") {
+      goToTargetGrok(request.targetId);
       sendResponse({ success: true });
       return true;
     } else if (request.action === "log") {
@@ -229,10 +298,10 @@ chrome.runtime.onMessage.addListener(
           await respondToMessageClaude(request.childrenIds, request.message);
           sendResponse({ success: true, completed: true });
         } catch (error: any) {
-          sendResponse({ 
-            success: false, 
-            completed: false, 
-            error: error.message 
+          sendResponse({
+            success: false,
+            completed: false,
+            error: error.message
           });
         }
       })();
@@ -243,14 +312,17 @@ chrome.runtime.onMessage.addListener(
           await editMessageClaude(request.messageId, request.message);
           sendResponse({ success: true, completed: true });
         } catch (error: any) {
-          sendResponse({ 
-            success: false, 
-            completed: false, 
-            error: error.message 
+          sendResponse({
+            success: false,
+            completed: false,
+            error: error.message
           });
         }
       })();
-      return true; // Keep message channel open for async response
+      return true;
+    } else if (request.action === "editMessageGrok" || request.action === "respondToMessageGrok") {
+      sendResponse({ success: false, completed: false, error: 'Edit/respond not yet supported for Grok' });
+      return true;
     }
     return false; // For non-async handlers
   }
@@ -320,7 +392,7 @@ async function triggerNativeArticleEvents() {
 
       function processElementRecursively(element: Element, depth: number) {
         if (depth > 5) return; // Stop at depth 5
-        
+
         // Trigger events on the current element
         triggerNativeEvents(element);
 
@@ -337,17 +409,17 @@ async function triggerNativeArticleEvents() {
 
       function startPollingForNewArticles() {
         let previousArticleCount = document.querySelectorAll('article[data-testid^="conversation-turn-"]').length;
-        
+
         const pollingInterval = setInterval(() => {
           const currentArticleCount = document.querySelectorAll('article[data-testid^="conversation-turn-"]').length;
-          
+
           if (currentArticleCount > previousArticleCount) {
             findAndTriggerEvents();
           }
-          
+
           previousArticleCount = currentArticleCount;
         }, 2000);
-        
+
         setTimeout(() => {
           clearInterval(pollingInterval);
         }, 30000);
@@ -380,7 +452,7 @@ async function triggerNativeArticleEvents() {
               }
             }
           });
-          
+
           chatObserver.observe(chatContainer, { childList: true, subtree: true });
         }
       }
@@ -390,7 +462,7 @@ async function triggerNativeArticleEvents() {
       const isInitialized = document.body.hasAttribute('data-events-initialized');
       if (!isInitialized) {
         document.body.setAttribute('data-events-initialized', 'true');
-        
+
         // Ensure DOM is ready
         if (document.readyState === "loading") {
           document.addEventListener("DOMContentLoaded", init);
@@ -412,12 +484,12 @@ async function fetchConversationHistory() {
   try {
     const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
     const currentTab = tabs[0];
-    
+
     if (!currentTab?.url) {
       console.log('No active tab URL found');
       return null;
     }
-    
+
     const url = new URL(currentTab.url);
     const conversationId = url.pathname.split('/').pop();
 
@@ -431,15 +503,15 @@ async function fetchConversationHistory() {
           credentials: 'include' // This will include cookies
         }
       );
-      
+
       const data = await response.json();
       if (!data) {
         throw new Error('No data received from Claude API');
       }
-      
+
       // Trigger native events after fetching conversation history
       await triggerNativeArticleEvents();
-      
+
       return data;
     } else if (url.origin === CHATGPT_ORIGIN) {
       // ChatGPT API endpoint - needs headers
@@ -466,16 +538,78 @@ async function fetchConversationHistory() {
         method: 'GET',
         headers: headersList,
       });
-      
+
       const data = await response.json();
       if (!data) {
         throw new Error('No data received from ChatGPT API');
       }
-      
+
       // Trigger native events after fetching conversation history
       await triggerNativeArticleEvents();
-      
+
       return data;
+    } else if (url.origin === GROK_ORIGIN) {
+      // Grok: URL format is https://grok.com/c/{uuid}?rid=...
+      if (!url.pathname.startsWith('/c/')) {
+        throw new Error('No conversation open. Open a Grok chat first.');
+      }
+
+      const grokConversationId = url.pathname.slice(3); // after '/c/'
+
+      // 1) Fetch response nodes to get full tree structure (ids + parents)
+      const nodesUrl = `${GROK_ORIGIN}/rest/app-chat/conversations/${grokConversationId}/response-node?includeThreads=true`;
+      const nodesResponse = await fetch(nodesUrl, {
+        method: 'GET',
+        credentials: 'include'
+      });
+      const nodesRaw = await nodesResponse.json().catch(() => null);
+      if (!nodesRaw || !nodesResponse.ok) {
+        throw new Error(nodesRaw?.error ?? 'No data received from Grok response-node API');
+      }
+
+      const responseNodes: any[] = Array.isArray(nodesRaw.responseNodes)
+        ? nodesRaw.responseNodes
+        : [];
+      const responseIds = responseNodes.map(n => n.responseId).filter(Boolean);
+
+      // 2) Fetch responses content for all ids
+      const grokUrl = `${GROK_ORIGIN}/rest/app-chat/conversations/${grokConversationId}/load-responses`;
+      const response = await fetch(grokUrl, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ responseIds })
+      });
+      const raw = await response.json().catch(() => null);
+      if (!raw || !response.ok) {
+        throw new Error(raw?.error ?? 'No data received from Grok API');
+      }
+
+      // 3) Merge node metadata (sender, parentResponseId) into responses before normalizing
+      const nodeById = new Map<string, any>(
+        responseNodes.map(n => [n.responseId, n])
+      );
+
+      const mergedResponses = Array.isArray(raw.responses)
+        ? raw.responses.map((r: any) => {
+          const id = r.responseId ?? r.id;
+          const node = id ? nodeById.get(id) : undefined;
+          return {
+            ...r,
+            sender: node?.sender ?? r.sender,
+            parentResponseId: node?.parentResponseId ?? null
+          };
+        })
+        : [];
+
+      const combined = {
+        conversationId: grokConversationId,
+        responses: mergedResponses
+      };
+
+      return normalizeGrokResponse(combined);
     } else {
       throw new Error('Unsupported chat platform');
     }
@@ -497,7 +631,7 @@ async function checkNodesExistence(nodeIds: string[]) {
       },
       args: [nodeIds]  // Pass nodeIds as an argument to the injected function
     });
-    
+
     return results[0].result;  // Returns array of nodeIds that exist in the DOM
   } catch (error) {
     console.error('Error in checkNodesExistence:', error);
@@ -546,7 +680,7 @@ async function checkNodesExistenceClaude(nodeTexts: string[] | undefined) {
             .replace(/^•\s*/gm, '')       // remove bullets
             .replace(/\s+/g, ' ')         // collapse all whitespace
             .trim();
-        
+
 
         const parser = new DOMParser();
         const doc = parser.parseFromString(html, 'text/html');
@@ -554,19 +688,19 @@ async function checkNodesExistenceClaude(nodeTexts: string[] | undefined) {
         function getVisibleTextWithSpacing(node: Node, listStack: number[] = []): string {
           let result = '';
 
-        
+
           for (const child of node.childNodes) {
             if (child.nodeType === Node.TEXT_NODE) {
               result += child.textContent || '';
             } else if (child.nodeType === Node.ELEMENT_NODE) {
               const el = child as HTMLElement;
               const tag = el.tagName.toLowerCase();
-        
+
               if (tag === 'br') {
                 result += '\n';
                 continue;
               }
-        
+
               if (tag === 'ol') {
                 const startAttr = parseInt(el.getAttribute('start') || '1', 10);
                 listStack.push(startAttr);
@@ -574,14 +708,14 @@ async function checkNodesExistenceClaude(nodeTexts: string[] | undefined) {
                 listStack.pop();
                 continue;
               }
-        
+
               if (tag === 'ul') {
                 listStack.push(-1); // sentinel for unordered
                 result += '\n' + getVisibleTextWithSpacing(el, listStack) + '\n';
                 listStack.pop();
                 continue;
               }
-        
+
               if (tag === 'li') {
                 let bullet = '• ';
                 if (listStack[listStack.length - 1] !== -1) {
@@ -590,17 +724,17 @@ async function checkNodesExistenceClaude(nodeTexts: string[] | undefined) {
                 result += bullet + getVisibleTextWithSpacing(el, listStack).trim() + '\n';
                 continue;
               }
-        
+
               result += getVisibleTextWithSpacing(el, listStack);
               if (['p', 'div', 'section', 'article', 'li'].includes(tag)) {
                 result += '\n';
               }
             }
           }
-        
+
           return result;
         }
-        
+
         const htmlText = getVisibleTextWithSpacing(doc.body);
 
         const normalizedHTML = normalize(htmlText);
@@ -611,7 +745,7 @@ async function checkNodesExistenceClaude(nodeTexts: string[] | undefined) {
 
       return texts.map(expectedText => {
         const containers = document.querySelectorAll('.grid-cols-1');
-        
+
         for (const container of containers) {
           const containerHTML = container.innerHTML;
           if (htmlTextEqualsIgnoringArtifacts(containerHTML, expectedText)) {
@@ -679,7 +813,7 @@ async function editMessage(messageId: string, message: string) {
           const isAssistant = element.getAttribute('data-message-author-role') === 'assistant';
           const buttonIndex = isAssistant ? buttons.length - 7 : 1; // edit is always second button for user, or 7th from end for assistant
           button = buttons[buttonIndex];
-          
+
           if (!button) {
             attempts++;
             await new Promise(resolve => setTimeout(resolve, 100));
@@ -687,7 +821,7 @@ async function editMessage(messageId: string, message: string) {
         }
 
         if (!button) throw new Error('Edit button not found');
-        
+
         button.click();
         await waitForDomChange(buttonDiv);
 
@@ -695,15 +829,15 @@ async function editMessage(messageId: string, message: string) {
         let textArea = buttonDiv.querySelector("textarea");
         let textAreaAttempts = 0;
         const maxTextAreaAttempts = 5;
-        
+
         while (!textArea && textAreaAttempts < maxTextAreaAttempts) {
           await new Promise(resolve => setTimeout(resolve, 100));
           textArea = buttonDiv.querySelector("textarea");
           textAreaAttempts++;
         }
-        
+
         if (!textArea) throw new Error('Textarea not found after multiple attempts');
-        
+
         textArea.value = message;
         textArea.dispatchEvent(new Event('input', { bubbles: true }));
         element.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -712,20 +846,20 @@ async function editMessage(messageId: string, message: string) {
         let currentElement: Element | null = textArea;
         let sendButton: HTMLButtonElement | null = null;
         let iterations = 0;
-        
+
         while (currentElement && iterations < 10) {
           const buttons = Array.from(currentElement.querySelectorAll('button'));
           // Send button is always the second button in the textarea container
           sendButton = buttons[1] as HTMLButtonElement || null;
           if (sendButton) break;
-          
+
           currentElement = currentElement.parentElement;
           iterations++;
         }
 
         if (!sendButton) throw new Error('Send button not found');
         sendButton.click();
-        
+
         // Wait for final update after sending
         await waitForDomChange(buttonDiv, 2000);
       };
@@ -795,7 +929,7 @@ async function respondToMessage(childrenIds: string[], message: string) {
           const isAssistant = element.getAttribute('data-message-author-role') === 'assistant';
           const buttonIndex = isAssistant ? buttons.length - 7 : 1; // edit is always second button for user, or 7th from end for assistant
           button = buttons[buttonIndex];
-          
+
           if (!button) {
             attempts++;
             await new Promise(resolve => setTimeout(resolve, 100));
@@ -811,15 +945,15 @@ async function respondToMessage(childrenIds: string[], message: string) {
         let textArea = buttonDiv.querySelector("textarea");
         let textAreaAttempts = 0;
         const maxTextAreaAttempts = 5;
-        
+
         while (!textArea && textAreaAttempts < maxTextAreaAttempts) {
           await new Promise(resolve => setTimeout(resolve, 100));
           textArea = buttonDiv.querySelector("textarea");
           textAreaAttempts++;
         }
-        
+
         if (!textArea) throw new Error('Textarea not found after multiple attempts');
-        
+
         textArea.value = message;
         textArea.dispatchEvent(new Event('input', { bubbles: true }));
         element.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -882,19 +1016,19 @@ async function selectBranchClaude(stepsToTake: any[]) {
           if (!element) {
             return null; // Base case: Element is null, return null.
           }
-        
+
           if (maxDepth <= 0) {
             return null; // Base case: Reached maximum depth, return null.
           }
-        
+
           // Find all buttons inside the current element
           const buttons = element.querySelectorAll('button');
-        
+
           if (buttons.length > 0) {
             // If buttons are found, convert NodeList to an array and return it
             return Array.from(buttons);
           }
-        
+
           // Recursive step: Move up to the parent element
           return findButtons(element.parentElement, maxDepth - 1);
         }
@@ -902,9 +1036,9 @@ async function selectBranchClaude(stepsToTake: any[]) {
         const waitForDomChange = (): Promise<void> => {
           return new Promise((resolve) => {
             const observer = new MutationObserver((mutations) => {
-              if (mutations.some(m => 
-                  m.type === 'childList' && (m.addedNodes.length > 0 || m.removedNodes.length > 0) ||
-                  (m.type === 'attributes' && ['style', 'class'].includes(m.attributeName || '')))) {
+              if (mutations.some(m =>
+                m.type === 'childList' && (m.addedNodes.length > 0 || m.removedNodes.length > 0) ||
+                (m.type === 'attributes' && ['style', 'class'].includes(m.attributeName || '')))) {
                 observer.disconnect();
                 resolve();
               }
@@ -927,13 +1061,13 @@ async function selectBranchClaude(stepsToTake: any[]) {
             for (const step of stepsToTake) {
               if (!step.nodeId) {
                 throw new Error('Step missing nodeId');
-                
+
               }
 
               // Find the target element
               const normalizedTargetText = step.nodeText.trim().replace(/\s+/g, ' ');
               const containers = document.querySelectorAll('.grid-cols-1');
-              
+
               let element = null;
               for (const container of containers) {
                 const containerText = container.textContent?.trim().replace(/\s+/g, ' ');
@@ -942,7 +1076,7 @@ async function selectBranchClaude(stepsToTake: any[]) {
                 }
               }
 
-              
+
               //0 is edit, 1 is previous, 2 is next
               let buttonIndex = step.stepsLeft > 0 ? 1 : 2;
 
@@ -1002,9 +1136,9 @@ async function selectBranch(stepsToTake: any[]) {
           }
 
           const eventTypes = [
-              'mouseover', 'mouseenter', 'mousemove', 'mousedown', 'mouseup', 'click',
-              'pointerover', 'pointerenter', 'pointerdown', 'pointerup', 'pointermove', 'pointercancel',
-              'focus', 'focusin'
+            'mouseover', 'mouseenter', 'mousemove', 'mousedown', 'mouseup', 'click',
+            'pointerover', 'pointerenter', 'pointerdown', 'pointerup', 'pointermove', 'pointercancel',
+            'focus', 'focusin'
           ];
 
           for (const eventType of eventTypes) {
@@ -1037,9 +1171,9 @@ async function selectBranch(stepsToTake: any[]) {
         const waitForDomChange = (): Promise<void> => {
           return new Promise((resolve) => {
             const observer = new MutationObserver((mutations) => {
-              if (mutations.some(m => 
-                  m.type === 'childList' && (m.addedNodes.length > 0 || m.removedNodes.length > 0) ||
-                  (m.type === 'attributes' && ['style', 'class'].includes(m.attributeName || '')))) {
+              if (mutations.some(m =>
+                m.type === 'childList' && (m.addedNodes.length > 0 || m.removedNodes.length > 0) ||
+                (m.type === 'attributes' && ['style', 'class'].includes(m.attributeName || '')))) {
                 observer.disconnect();
                 resolve();
               }
@@ -1070,7 +1204,7 @@ async function selectBranch(stepsToTake: any[]) {
               }
 
               triggerNativeEvents(element);
-              
+
               const buttonDiv = element.parentElement?.parentElement;
               if (!buttonDiv) {
                 throw new Error(`Button container not found for nodeId: ${step.nodeId}`);
@@ -1082,7 +1216,7 @@ async function selectBranch(stepsToTake: any[]) {
                   const buttons = Array.from(container?.querySelectorAll('button') || []);
                   return buttons[step.stepsLeft > 0 ? 0 : 1]; // 0 for left, 1 for right
                 }
-                
+
                 // User message: buttons are [copy, edit, left, right]
                 const buttons = Array.from(buttonDiv.querySelectorAll("button"));
                 return buttons[step.stepsLeft > 0 ? 2 : 3]; // 2 for left, 3 for right
@@ -1102,7 +1236,7 @@ async function selectBranch(stepsToTake: any[]) {
 
               while (!button && attempts < maxAttempts) {
                 button = findNavigationButton(buttonDiv, step);
-                
+
                 if (!button) {
                   processElementRecursively(element);
                   attempts++;
@@ -1179,7 +1313,7 @@ async function goToTargetClaude(targetText: string) {
             .replace(/^•\s*/gm, '')       // remove bullets
             .replace(/\s+/g, ' ')         // collapse all whitespace
             .trim();
-        
+
 
         const parser = new DOMParser();
         const doc = parser.parseFromString(html, 'text/html');
@@ -1187,19 +1321,19 @@ async function goToTargetClaude(targetText: string) {
         function getVisibleTextWithSpacing(node: Node, listStack: number[] = []): string {
           let result = '';
 
-        
+
           for (const child of node.childNodes) {
             if (child.nodeType === Node.TEXT_NODE) {
               result += child.textContent || '';
             } else if (child.nodeType === Node.ELEMENT_NODE) {
               const el = child as HTMLElement;
               const tag = el.tagName.toLowerCase();
-        
+
               if (tag === 'br') {
                 result += '\n';
                 continue;
               }
-        
+
               if (tag === 'ol') {
                 const startAttr = parseInt(el.getAttribute('start') || '1', 10);
                 listStack.push(startAttr);
@@ -1207,14 +1341,14 @@ async function goToTargetClaude(targetText: string) {
                 listStack.pop();
                 continue;
               }
-        
+
               if (tag === 'ul') {
                 listStack.push(-1); // sentinel for unordered
                 result += '\n' + getVisibleTextWithSpacing(el, listStack) + '\n';
                 listStack.pop();
                 continue;
               }
-        
+
               if (tag === 'li') {
                 let bullet = '• ';
                 if (listStack[listStack.length - 1] !== -1) {
@@ -1223,17 +1357,17 @@ async function goToTargetClaude(targetText: string) {
                 result += bullet + getVisibleTextWithSpacing(el, listStack).trim() + '\n';
                 continue;
               }
-        
+
               result += getVisibleTextWithSpacing(el, listStack);
               if (['p', 'div', 'section', 'article', 'li'].includes(tag)) {
                 result += '\n';
               }
             }
           }
-        
+
           return result;
         }
-        
+
         const htmlText = getVisibleTextWithSpacing(doc.body);
 
         const normalizedHTML = normalize(htmlText);
@@ -1244,7 +1378,7 @@ async function goToTargetClaude(targetText: string) {
       }
 
       const containers = document.querySelectorAll('.grid-cols-1');
-      
+
       for (const container of containers) {
         const containerHTML = container.innerHTML;
         if (htmlTextEqualsIgnoringArtifacts(containerHTML, targetText)) {
@@ -1257,9 +1391,107 @@ async function goToTargetClaude(targetText: string) {
   })
 }
 
+// Grok: placeholder DOM logic; update selectors when grok.com structure is known
+async function checkNodesExistenceGrok(nodeTexts: string[] | undefined) {
+  if (!nodeTexts || !Array.isArray(nodeTexts)) {
+    throw new Error('Invalid nodeTexts provided');
+  }
+  const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+  const currentTab = tabs[0];
+  if (!currentTab?.id) throw new Error('No active tab found');
+  const serializableTexts = nodeTexts.map(text => String(text));
+
+  const results = await chrome.scripting.executeScript({
+    target: { tabId: currentTab.id },
+    func: (texts: string[]) => {
+      const normalize = (s: string) => s.replace(/\s+/g, ' ').trim();
+      return texts.map(expected => {
+        const sel = document.querySelector('[data-message-id]') ? 'main [data-message-id], main [role="article"], main > div > div' : 'main [role="article"], main > div > div, [data-message-id]';
+        const candidates = document.querySelectorAll(sel);
+        const expNorm = normalize(expected);
+        for (const el of candidates) {
+          const t = el.textContent || '';
+          if (normalize(t).slice(0, 500) === expNorm.slice(0, 500) || normalize(t).includes(expNorm) || expNorm.includes(normalize(t).slice(0, 200))) {
+            return false;
+          }
+        }
+        return true;
+      });
+    },
+    args: [serializableTexts]
+  });
+  const result = results?.[0]?.result;
+  if (!Array.isArray(result)) {
+    throw new Error('Failed to check Grok nodes: no result from page');
+  }
+  return result;
+}
+
+async function selectBranchGrok(stepsToTake: any[]) {
+  if (!Array.isArray(stepsToTake)) throw new Error('stepsToTake must be an array');
+  const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+  const currentTab = tabs[0];
+  if (!currentTab?.id) throw new Error('No active tab found');
+
+  await chrome.scripting.executeScript({
+    target: { tabId: currentTab.id },
+    func: (stepsToTake: any[]) => {
+      const normalize = (s: string) => s.replace(/\s+/g, ' ').trim();
+      const findElementByText = (nodeText: string) => {
+        const sel = 'main [data-message-id], main [role="article"], main > div > div';
+        for (const el of document.querySelectorAll(sel)) {
+          const t = el.textContent || '';
+          if (normalize(t).slice(0, 300) === normalize(nodeText).slice(0, 300)) return el;
+        }
+        return null;
+      };
+      const findButtons = (el: Element | null, depth = 5): HTMLButtonElement[] | null => {
+        if (!el || depth <= 0) return null;
+        const btns = el.querySelectorAll('button');
+        if (btns.length) return Array.from(btns) as HTMLButtonElement[];
+        return findButtons(el.parentElement, depth - 1);
+      };
+      for (const step of stepsToTake) {
+        const el = document.querySelector(`[data-message-id="${step.nodeId}"]`) || findElementByText(step.nodeText);
+        if (!el) continue;
+        const buttons = findButtons(el);
+        if (!buttons || buttons.length < 2) continue;
+        const idx = step.stepsLeft > 0 ? 1 : 2;
+        const btn = buttons[idx];
+        if (btn) btn.click();
+      }
+    },
+    args: [stepsToTake]
+  });
+}
+
+async function goToTargetGrok(targetId: string) {
+  const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+  const currentTab = tabs[0];
+  if (!currentTab?.id) return;
+  await chrome.scripting.executeScript({
+    target: { tabId: currentTab.id },
+    func: (targetId: string) => {
+      const byId = document.querySelector(`[data-message-id="${targetId}"]`);
+      if (byId) {
+        byId.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+      }
+      const sel = 'main [data-message-id], main [role="article"], main > div > div';
+      for (const el of document.querySelectorAll(sel)) {
+        if (el.getAttribute('data-message-id') === targetId) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          break;
+        }
+      }
+    },
+    args: [targetId]
+  });
+}
+
 async function respondToMessageClaude(childrenIds: string[], message: string) {
   try {
-    
+
     if (!Array.isArray(childrenIds)) {
       throw new Error('childrenIds must be an array');
     }
@@ -1281,43 +1513,43 @@ async function respondToMessageClaude(childrenIds: string[], message: string) {
       target: { tabId: currentTab.id },
       func: (childrenIds, message) => {
         // Helper function to wait for DOM changes with specific state check
-        
+
         function findButtons(element: Element | null, maxDepth = 5) {
           if (!element) {
             console.log('No element provided to findButtons');
             return null;
           }
-        
+
           if (maxDepth <= 0) {
             console.log('Reached maximum depth in findButtons');
             return null;
           }
-        
+
           const buttons = element.querySelectorAll('button');
-        
-        
+
+
           if (buttons.length > 0) {
             return Array.from(buttons);
           }
-        
+
           return findButtons(element.parentElement, maxDepth - 1);
         }
 
         const performResponse = async () => {
-         
-          
+
+
           // Find the first visible message element
           let element = null;
           for (const messageId of childrenIds) {
-           
+
             const normalizedTargetText = messageId.trim().replace(/\s+/g, ' ');
             const containers = document.querySelectorAll('.grid-cols-1');
-            
-            
+
+
             for (const container of containers) {
               const containerText = container.textContent?.trim().replace(/\s+/g, ' ');
               if (containerText === normalizedTargetText) {
-                
+
                 element = container;
                 break;
               }
@@ -1350,7 +1582,7 @@ async function respondToMessageClaude(childrenIds: string[], message: string) {
           let textArea: HTMLTextAreaElement | null = null;
           let attempts = 0;
           const maxAttempts = 10;
-          
+
           while (!textArea && attempts < maxAttempts) {
             // Look for textarea with the specific class pattern
             textArea = document.querySelector('textarea.bg-bg-000.border.border-border-300') as HTMLTextAreaElement;
@@ -1372,11 +1604,11 @@ async function respondToMessageClaude(childrenIds: string[], message: string) {
           let buttonContainer: HTMLElement | null = textArea;
           let iterations = 0;
           const maxIterations = 5;
-          
+
           while (iterations < maxIterations) {
             buttonContainer = buttonContainer.parentElement;
             if (!buttonContainer) break;
-            
+
             const buttons = buttonContainer.querySelectorAll('button');
             if (buttons.length > 0) {
               console.log('Found button container');
@@ -1415,7 +1647,7 @@ async function respondToMessageClaude(childrenIds: string[], message: string) {
 
 async function editMessageClaude(messageText: string, newMessage: string) {
   try {
-    
+
     if (typeof messageText !== 'string') {
       throw new Error('messageText must be a string');
     }
@@ -1441,28 +1673,28 @@ async function editMessageClaude(messageText: string, newMessage: string) {
             console.log('No element provided to findButtons');
             return null;
           }
-        
+
           if (maxDepth <= 0) {
             console.log('Reached maximum depth in findButtons');
             return null;
           }
-        
+
           const buttons = element.querySelectorAll('button');
-         
-        
+
+
           if (buttons.length > 0) {
             return Array.from(buttons);
           }
-        
+
           return findButtons(element.parentElement, maxDepth - 1);
         }
 
         const performEdit = async () => {
-          
+
           // Find the message element
           const normalizedTargetText = messageText.trim().replace(/\s+/g, ' ');
           const containers = document.querySelectorAll('.grid-cols-1');
-          
+
           let element = null;
           for (const container of containers) {
             const containerText = container.textContent?.trim().replace(/\s+/g, ' ');
@@ -1497,7 +1729,7 @@ async function editMessageClaude(messageText: string, newMessage: string) {
           let textArea: HTMLTextAreaElement | null = null;
           let attempts = 0;
           const maxAttempts = 10;
-          
+
           while (!textArea && attempts < maxAttempts) {
             // Look for textarea with the specific class pattern
             textArea = document.querySelector('textarea.bg-bg-000.border.border-border-300') as HTMLTextAreaElement;
@@ -1519,11 +1751,11 @@ async function editMessageClaude(messageText: string, newMessage: string) {
           let buttonContainer: HTMLElement | null = textArea;
           let iterations = 0;
           const maxIterations = 5;
-          
+
           while (iterations < maxIterations) {
             buttonContainer = buttonContainer.parentElement;
             if (!buttonContainer) break;
-            
+
             const buttons = buttonContainer.querySelectorAll('button');
             if (buttons.length > 0) {
               break;
@@ -1569,13 +1801,13 @@ chrome.tabs.onUpdated.addListener(async (tabId, _info, tab) => {
       return;
     }
     const url = new URL(tab.url);
-    if (url.origin === CHATGPT_ORIGIN || url.origin === CLAUDE_ORIGIN) {
+    if (url.origin === CHATGPT_ORIGIN || url.origin === CLAUDE_ORIGIN || url.origin === GROK_ORIGIN) {
       await chrome.sidePanel.setOptions({
         tabId,
         path: 'index.html',
         enabled: true
       });
-      
+
       // Trigger native events when a ChatGPT or Claude page is loaded or updated
       // Wait a bit for the page to fully load
       setTimeout(() => {
@@ -1596,14 +1828,14 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
   const tab = await chrome.tabs.get(activeInfo.tabId);
   if (!tab.url) return;
   const url = new URL(tab.url);
-  
-  if (url.origin === CHATGPT_ORIGIN || url.origin === CLAUDE_ORIGIN) {
+
+  if (url.origin === CHATGPT_ORIGIN || url.origin === CLAUDE_ORIGIN || url.origin === GROK_ORIGIN) {
     await chrome.sidePanel.setOptions({
       tabId: activeInfo.tabId,
       path: 'index.html',
       enabled: true
     });
-    
+
     // Trigger native events when switching to a ChatGPT tab
     // Wait a bit for the page to be fully active
     setTimeout(() => {

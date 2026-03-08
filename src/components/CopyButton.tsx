@@ -5,7 +5,7 @@ import { CopyModal } from './CopyModal';
 interface CopyButtonProps {
   nodes: OpenAINode[];
   onNodeClick?: (nodeId: string) => void;
-  provider?: 'openai' | 'claude';
+  provider?: 'openai' | 'claude' | 'grok';
 }
 
 export const CopyButton = ({ nodes, onNodeClick, provider = 'openai' }: CopyButtonProps) => {

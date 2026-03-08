@@ -1,12 +1,12 @@
-import { OpenAINode, OpenAIMenuState, ClaudeNode, ClaudeMenuState } from '../types/interfaces';
+import { OpenAINode, OpenAIMenuState, ClaudeNode, ClaudeMenuState, GrokNode, GrokMenuState } from '../types/interfaces';
 
 export const createContextMenuHandler = (ref: React.RefObject<HTMLDivElement>, setMenu: (menu: OpenAIMenuState) => void) => {
   return (event: React.MouseEvent, node: OpenAINode) => {
     event.preventDefault();
-    
+
     const pane = ref?.current?.getBoundingClientRect();
     const nodeId = node.data?.id ?? '';
-    
+
     if (pane) {
       // Get scroll position
       const scrollTop = ref.current?.scrollTop || 0;
@@ -32,15 +32,15 @@ export const createContextMenuHandler = (ref: React.RefObject<HTMLDivElement>, s
 };
 
 export const createClaudeContextMenuHandler = (
-  ref: React.RefObject<HTMLDivElement>, 
+  ref: React.RefObject<HTMLDivElement>,
   setMenu: (menu: ClaudeMenuState) => void,
   nodes: ClaudeNode[]
 ) => {
   return (event: React.MouseEvent, node: ClaudeNode) => {
     event.preventDefault();
-    
+
     const pane = ref?.current?.getBoundingClientRect();
-    
+
     if (pane) {
       // Get scroll position
       const scrollTop = ref.current?.scrollTop || 0;
@@ -75,7 +75,7 @@ export const createClaudeContextMenuHandler = (
 
 export const checkNodes = async (nodeIds: string[]) => {
   console.log('checkNodes received params:', nodeIds);
-  
+
   if (!nodeIds || !Array.isArray(nodeIds)) {
     throw new Error('nodeIds must be provided');
   }
@@ -84,14 +84,14 @@ export const checkNodes = async (nodeIds: string[]) => {
     action: "checkNodes",
     nodeIds,
   });
-    
+
   if (response.success) {
     return response.existingNodes;
   } else {
     console.error('Error checking nodes:', response.error);
     throw new Error(response.error);
   }
-}; 
+};
 
 export const checkNodesClaude = async (nodeTexts: string[]) => {
   if (!nodeTexts || !Array.isArray(nodeTexts)) {
@@ -111,3 +111,50 @@ export const checkNodesClaude = async (nodeTexts: string[]) => {
   }
 };
 
+export const createGrokContextMenuHandler = (
+  ref: React.RefObject<HTMLDivElement>,
+  setMenu: (menu: GrokMenuState) => void,
+  nodes: GrokNode[]
+) => {
+  return (event: React.MouseEvent, node: GrokNode) => {
+    event.preventDefault();
+    const pane = ref?.current?.getBoundingClientRect();
+    if (pane) {
+      const scrollTop = ref.current?.scrollTop || 0;
+      const scrollLeft = ref.current?.scrollLeft || 0;
+      const yPos = event.clientY + scrollTop;
+      const xPos = event.clientX + scrollLeft;
+      const childrenTexts = node.children.map((childId) => {
+        const childNode = nodes.find((n) => n.id === childId);
+        return childNode?.data?.text || '';
+      });
+      setMenu({
+        message: node.data?.text || '',
+        messageId: node.id,
+        childrenTexts,
+        role: node.data?.role ?? '',
+        top: yPos < pane.height - 200 && yPos ? yPos - 48 : false,
+        left: xPos < pane.width - 200 && xPos ? xPos : false,
+        right: xPos >= pane.width - 200 && pane.width - xPos,
+        bottom: yPos >= pane.height - 200 && pane.height - yPos + 48,
+        hidden: node.data?.hidden
+      });
+    }
+  };
+};
+
+export const checkNodesGrok = async (nodeTexts: string[]) => {
+  if (!nodeTexts || !Array.isArray(nodeTexts)) {
+    throw new Error('Invalid nodeTexts provided');
+  }
+  const response = await chrome.runtime.sendMessage({
+    action: "checkNodesGrok",
+    nodeTexts
+  });
+  if (response.success) {
+    return response.existingNodes;
+  } else {
+    console.error('Error checking nodes:', response.error);
+    throw new Error(response.error);
+  }
+};

@@ -3,16 +3,20 @@ import { ReactFlow, addEdge, Connection, MiniMap, Controls, Background, Backgrou
 import { ContextMenu } from './ContextMenu';
 import { LoadingSpinner, ErrorState } from "./LoadingStates";
 import { useConversationTree } from '../hooks/useConversationTree';
-import { createContextMenuHandler, checkNodes, checkNodesClaude, createClaudeContextMenuHandler } from '../utils/conversationTreeHandlers';
+import { createContextMenuHandler, checkNodes, checkNodesClaude, checkNodesGrok, createClaudeContextMenuHandler, createGrokContextMenuHandler } from '../utils/conversationTreeHandlers';
 import { createNodesInOrder } from '../utils/nodeCreation';
-import { createClaudeNodesInOrder} from '../utils/claudeNodeCreation';
+import { createClaudeNodesInOrder } from '../utils/claudeNodeCreation';
+import { createGrokNodesInOrder } from '../utils/grokNodeCreation';
 import { calculateSteps } from '../utils/nodeNavigation';
 import { ExportButton } from './ExportButton';
+import { ExportButtonClaude } from './ExportButtonClaude';
+import { ExportButtonGrok } from './ExportButtonGrok';
 import { CopyButton } from './CopyButton';
 import { CustomNode } from "./CustomNode";
 import { SearchBar } from './SearchBar';
-import { OpenAIConversationData, ClaudeConversation, ClaudeNode} from '../types/interfaces';
+import { OpenAIConversationData, ClaudeConversation, ClaudeNode, GrokConversation, GrokNode } from '../types/interfaces';
 import { calculateStepsClaude } from '../utils/nodeNavigationClaude';
+import { calculateStepsGrok } from '../utils/nodeNavigationGrok';
 import '@xyflow/react/dist/style.css';
 
 const nodeTypes: NodeTypes = {
@@ -58,14 +62,12 @@ const ConversationTree = () => {
   useEffect(() => {
     if (conversationData) {
       chrome.runtime.sendMessage({ action: "log", message: "Starting tree initialization with provider: " + provider });
-      const createNodes = provider === 'openai' 
-        ? (data: OpenAIConversationData) => {
-            return createNodesInOrder(data, checkNodes);
-          }
-        : (data: ClaudeConversation) => {
-            return createClaudeNodesInOrder(data, checkNodesClaude);
-          };
-      
+      const createNodes = provider === 'openai'
+        ? (data: OpenAIConversationData) => createNodesInOrder(data, checkNodes)
+        : provider === 'claude'
+          ? (data: ClaudeConversation) => createClaudeNodesInOrder(data, checkNodesClaude)
+          : (data: GrokConversation) => createGrokNodesInOrder(data, checkNodesGrok);
+
       createNodes(conversationData as any)
         .then(({ nodes: newNodes, edges: newEdges }) => {
           chrome.runtime.sendMessage({ action: "log", message: `Created ${newNodes.length} nodes and ${newEdges.length} edges` });
@@ -83,7 +85,7 @@ const ConversationTree = () => {
 
   // Add another useEffect to handle initial data fetch
   useEffect(() => {
-   
+
     handleRefresh();
   }, []);
 
@@ -97,10 +99,12 @@ const ConversationTree = () => {
         chrome.runtime.sendMessage({ action: "log", message: "Successfully fetched conversation data" });
         // Determine the provider based on the response data structure
         const isClaude = 'chat_messages' in response.data;
-        chrome.runtime.sendMessage({ action: "log", message: `Detected provider: ${isClaude ? 'claude' : 'openai'}` });
-        setProvider(isClaude ? 'claude' : 'openai');
+        const isGrok = 'grok_messages' in response.data || ('messages' in response.data && !('mapping' in response.data));
+        const detected = isGrok ? 'grok' : isClaude ? 'claude' : 'openai';
+        chrome.runtime.sendMessage({ action: "log", message: `Detected provider: ${detected}` });
+        setProvider(detected);
         setConversationData(response.data);
-        
+
         // Fit view after nodes are rendered
         setTimeout(() => {
           if (reactFlowInstance.current) {
@@ -124,23 +128,27 @@ const ConversationTree = () => {
   const updateNodesVisibility = useCallback(async () => {
     if (provider === 'openai') {
       const nodeIds = nodes.map((node: any) => node.id);
-      
       const existingNodes = await checkNodes(nodeIds);
-      
-      setNodes((prevNodes: any) => 
+      setNodes((prevNodes: any) =>
         prevNodes.map((node: any, index: number) => ({
           ...node,
-          data: {
-            ...node.data,
-            hidden: existingNodes[index]
-          }
+          data: { ...node.data, hidden: existingNodes[index] }
+        }))
+      );
+    } else if (provider === 'grok') {
+      const nodeTexts = nodes.map((node: any) => node.data?.text ?? '');
+      const existingNodes = await checkNodesGrok(nodeTexts);
+      setNodes((prevNodes: any) =>
+        prevNodes.map((node: any, index: number) => ({
+          ...node,
+          data: { ...node.data, hidden: existingNodes[index] }
         }))
       );
     } else {
       // Claude case
       const nodeTexts = nodes.map((node: any) => node.data.text);
       const existingNodes = await checkNodesClaude(nodeTexts);
-      
+
       // Create a map of node IDs to their parents for efficient lookup
       const parentMap: Record<string, string> = {};
       edges.forEach((edge: any) => {
@@ -153,11 +161,11 @@ const ConversationTree = () => {
         visibilityMap[node.id] = !existingNodes[index];
       });
 
-      setNodes((prevNodes: any) => 
+      setNodes((prevNodes: any) =>
         prevNodes.map((node: any, index: number) => {
           const isHidden = existingNodes[index];
           const wasOnPreviousPath = previousPathNodeIds.has(node.id);
-          
+
           let isPreviouslyVisited = false;
           if (wasOnPreviousPath && isHidden) {
             // Check if parent is hidden - if parent is visible, we're on a new branch
@@ -187,51 +195,35 @@ const ConversationTree = () => {
   // Calculate navigation steps when a node is clicked
   const handleNodeClick = useCallback((messageId: string) => {
     setMenu(null);
-    
+
     if (provider === 'openai') {
       return calculateSteps(nodes, messageId);
-    } else {
-      
-      // Find the parent of the clicked node
-      const parentEdge = typedEdges.find(edge => edge.target === messageId);
-      if (parentEdge) {
-        const parentId = parentEdge.source;
-          
-        // Update the lastActiveChildMap with this new active child
-        setLastActiveChildMap(prev => {
-          const updated = { ...prev, [parentId]: messageId };
-          
-          return updated;
-        });
-      }
-
-      // For Claude, store the currently visible nodes before navigation
-      const currentlyVisibleNodes = new Set(
-        nodes
-          .filter((node: any) => !node.data.hidden)
-          .map((node: any) => node.id)
-      );
-      setPreviousPathNodeIds(currentlyVisibleNodes);
-
-      // Calculate and execute navigation steps
-      const steps = calculateStepsClaude(nodes as ClaudeNode[], messageId, lastActiveChildMap);
-      
-      // After navigation completes, update visibility states
-      setTimeout(async () => {
-        await updateNodesVisibility();
-      }, 100); // Small delay to ensure DOM updates have completed
-
-      return steps;
     }
+
+    const parentEdge = typedEdges.find(edge => edge.target === messageId);
+    if (parentEdge) {
+      setLastActiveChildMap(prev => ({ ...prev, [parentEdge.source]: messageId }));
+    }
+    const currentlyVisibleNodes = new Set(
+      nodes.filter((node: any) => !node.data?.hidden).map((node: any) => node.id)
+    );
+    setPreviousPathNodeIds(currentlyVisibleNodes);
+
+    const steps = provider === 'claude'
+      ? calculateStepsClaude(nodes as ClaudeNode[], messageId, lastActiveChildMap)
+      : calculateStepsGrok(nodes as GrokNode[], messageId, lastActiveChildMap);
+
+    setTimeout(() => updateNodesVisibility(), 100);
+    return steps;
   }, [nodes, provider, lastActiveChildMap, typedEdges, updateNodesVisibility]);
 
   useEffect(() => {
     const messageListener = (message: any, _sender: chrome.runtime.MessageSender, _sendResponse: (response?: any) => void) => {
       if (message.action === "updateLastActiveChild" && message.parentId && message.activeChildId) {
-        
+
         setLastActiveChildMap(prevMap => {
           const updated = { ...prevMap, [message.parentId]: message.activeChildId };
-         
+
           return updated;
         });
       }
@@ -246,13 +238,12 @@ const ConversationTree = () => {
 
   const onNodeContextMenu = useCallback(
     (event: React.MouseEvent, node: any) => {
-      // Ensure ref is treated as RefObject<HTMLDivElement> to match function signature
       if (provider === 'openai') {
-        // Use the ref as is, the function handles null checking internally
         createContextMenuHandler(ref as React.RefObject<HTMLDivElement>, setMenu)(event, node);
-      } else {
-        // Use the ref as is, the function handles null checking internally
+      } else if (provider === 'claude') {
         createClaudeContextMenuHandler(ref as React.RefObject<HTMLDivElement>, setMenu, nodes)(event, node);
+      } else {
+        createGrokContextMenuHandler(ref as React.RefObject<HTMLDivElement>, setMenu, nodes)(event, node);
       }
     },
     [ref, setMenu, provider, nodes]
@@ -301,16 +292,32 @@ const ConversationTree = () => {
             <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
           </svg>
         </button>
-        <CopyButton 
-          nodes={nodes} 
+        <CopyButton
+          nodes={nodes}
           onNodeClick={handleNodeClick}
           provider={provider}
         />
-        <ExportButton 
-          nodes={nodes} 
-          conversationData={conversationData}
-          className="p-2.5 hover:bg-gray-50 transition-colors rounded-r-lg group"
-        />
+        {provider === 'openai' && (
+          <ExportButton
+            nodes={nodes}
+            conversationData={conversationData}
+            className="p-2.5 hover:bg-gray-50 transition-colors rounded-r-lg group"
+          />
+        )}
+        {provider === 'claude' && (
+          <ExportButtonClaude
+            nodes={nodes}
+            conversationData={conversationData}
+            className="p-2.5 hover:bg-gray-50 transition-colors rounded-r-lg group"
+          />
+        )}
+        {provider === 'grok' && (
+          <ExportButtonGrok
+            nodes={nodes}
+            conversationData={conversationData as GrokConversation}
+            className="p-2.5 hover:bg-gray-50 transition-colors rounded-r-lg group"
+          />
+        )}
       </div>
       <ReactFlow
         ref={ref}
@@ -322,7 +329,7 @@ const ConversationTree = () => {
         nodeTypes={nodeTypes}
         onNodeContextMenu={onNodeContextMenu}
         onPaneClick={onPaneClick}
-        onInit={instance => { 
+        onInit={instance => {
           reactFlowInstance.current = instance;
         }}
         fitView
@@ -332,18 +339,18 @@ const ConversationTree = () => {
         defaultViewport={{ x: 0, y: 0, zoom: 0.8 }}
       >
         <Controls className="bg-white rounded-lg shadow-lg" />
-        <MiniMap 
+        <MiniMap
           nodeColor={(node) => node.data?.role === 'user' ? '#fefce8' : '#f9fafb'}
           className="bg-white rounded-lg shadow-lg"
         />
         <Background variant={BackgroundVariant.Dots} gap={12} size={1} color="#f1f1f1" />
-        {menu && <ContextMenu 
+        {menu && <ContextMenu
           provider={provider}
-          onClick={onPaneClick} 
-          onNodeClick={handleNodeClick} 
+          onClick={onPaneClick}
+          onNodeClick={handleNodeClick}
           onRefresh={updateNodesVisibility}
           refreshNodes={handleRefresh}
-          {...menu} 
+          {...menu}
         />}
       </ReactFlow>
       {showSearch && (
