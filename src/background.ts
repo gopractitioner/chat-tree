@@ -249,11 +249,11 @@ chrome.runtime.onMessage.addListener(
         }
         const url = new URL(tabs[0].url);
         if (url.origin === GROK_ORIGIN) {
-          if (!request.nodeTexts || !Array.isArray(request.nodeTexts)) {
-            sendResponse({ success: false, error: "Invalid nodeTexts provided" });
+          if (!request.nodeIds || !Array.isArray(request.nodeIds)) {
+            sendResponse({ success: false, error: "Invalid nodeIds provided" });
             return;
           }
-          checkNodesExistenceGrok(request.nodeTexts)
+          checkNodesExistenceGrok(request.nodeIds)
             .then(existingNodes => sendResponse({ success: true, existingNodes }))
             .catch(error => sendResponse({ success: false, error: error.message }));
         } else {
@@ -1392,33 +1392,21 @@ async function goToTargetClaude(targetText: string) {
 }
 
 // Grok: placeholder DOM logic; update selectors when grok.com structure is known
-async function checkNodesExistenceGrok(nodeTexts: string[] | undefined) {
-  if (!nodeTexts || !Array.isArray(nodeTexts)) {
-    throw new Error('Invalid nodeTexts provided');
+async function checkNodesExistenceGrok(nodeIds: string[] | undefined) {
+  if (!nodeIds || !Array.isArray(nodeIds)) {
+    throw new Error('Invalid nodeIds provided');
   }
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
   const currentTab = tabs[0];
   if (!currentTab?.id) throw new Error('No active tab found');
-  const serializableTexts = nodeTexts.map(text => String(text));
+  const serializableIds = nodeIds.map(id => String(id));
 
   const results = await chrome.scripting.executeScript({
     target: { tabId: currentTab.id },
-    func: (texts: string[]) => {
-      const normalize = (s: string) => s.replace(/\s+/g, ' ').trim();
-      return texts.map(expected => {
-        const sel = document.querySelector('[data-message-id]') ? 'main [data-message-id], main [role="article"], main > div > div' : 'main [role="article"], main > div > div, [data-message-id]';
-        const candidates = document.querySelectorAll(sel);
-        const expNorm = normalize(expected);
-        for (const el of candidates) {
-          const t = el.textContent || '';
-          if (normalize(t).slice(0, 500) === expNorm.slice(0, 500) || normalize(t).includes(expNorm) || expNorm.includes(normalize(t).slice(0, 200))) {
-            return false;
-          }
-        }
-        return true;
-      });
+    func: (ids: string[]) => {
+      return ids.map(id => document.getElementById('response-' + id) === null);
     },
-    args: [serializableTexts]
+    args: [serializableIds]
   });
   const result = results?.[0]?.result;
   if (!Array.isArray(result)) {
@@ -1436,29 +1424,12 @@ async function selectBranchGrok(stepsToTake: any[]) {
   await chrome.scripting.executeScript({
     target: { tabId: currentTab.id },
     func: (stepsToTake: any[]) => {
-      const normalize = (s: string) => s.replace(/\s+/g, ' ').trim();
-      const findElementByText = (nodeText: string) => {
-        const sel = 'main [data-message-id], main [role="article"], main > div > div';
-        for (const el of document.querySelectorAll(sel)) {
-          const t = el.textContent || '';
-          if (normalize(t).slice(0, 300) === normalize(nodeText).slice(0, 300)) return el;
-        }
-        return null;
-      };
-      const findButtons = (el: Element | null, depth = 5): HTMLButtonElement[] | null => {
-        if (!el || depth <= 0) return null;
-        const btns = el.querySelectorAll('button');
-        if (btns.length) return Array.from(btns) as HTMLButtonElement[];
-        return findButtons(el.parentElement, depth - 1);
-      };
       for (const step of stepsToTake) {
-        const el = document.querySelector(`[data-message-id="${step.nodeId}"]`) || findElementByText(step.nodeText);
+        const el = document.getElementById('response-' + step.nodeId);
         if (!el) continue;
-        const buttons = findButtons(el);
-        if (!buttons || buttons.length < 2) continue;
-        const idx = step.stepsLeft > 0 ? 1 : 2;
-        const btn = buttons[idx];
-        if (btn) btn.click();
+        const ariaLabel = step.stepsLeft > 0 ? '上一条消息' : '下一条消息';
+        const btn = el.querySelector(`button[aria-label="${ariaLabel}"]`) as HTMLButtonElement | null;
+        if (btn && !btn.disabled) btn.click();
       }
     },
     args: [stepsToTake]
@@ -1472,18 +1443,8 @@ async function goToTargetGrok(targetId: string) {
   await chrome.scripting.executeScript({
     target: { tabId: currentTab.id },
     func: (targetId: string) => {
-      const byId = document.querySelector(`[data-message-id="${targetId}"]`);
-      if (byId) {
-        byId.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        return;
-      }
-      const sel = 'main [data-message-id], main [role="article"], main > div > div';
-      for (const el of document.querySelectorAll(sel)) {
-        if (el.getAttribute('data-message-id') === targetId) {
-          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          break;
-        }
-      }
+      const el = document.getElementById('response-' + targetId);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     },
     args: [targetId]
   });

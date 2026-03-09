@@ -143,13 +143,13 @@ export const createGrokContextMenuHandler = (
   };
 };
 
-export const checkNodesGrok = async (nodeTexts: string[]) => {
-  if (!nodeTexts || !Array.isArray(nodeTexts)) {
-    throw new Error('Invalid nodeTexts provided');
+export const checkNodesGrok = async (nodeIds: string[]) => {
+  if (!nodeIds || !Array.isArray(nodeIds)) {
+    throw new Error('Invalid nodeIds provided');
   }
   const response = await chrome.runtime.sendMessage({
     action: "checkNodesGrok",
-    nodeTexts
+    nodeIds
   });
   if (response.success) {
     return response.existingNodes;

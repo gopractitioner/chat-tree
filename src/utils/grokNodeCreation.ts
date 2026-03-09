@@ -17,7 +17,7 @@ function getGrokMessageText(msg: GrokMessage): string {
 
 export const createGrokNodesInOrder = async (
   conversationData: GrokConversation,
-  checkNodes: (nodeTexts: string[]) => Promise<boolean[]>
+  checkNodes: (nodeIds: string[]) => Promise<boolean[]>
 ) => {
   const messages = conversationData.grok_messages ?? conversationData.messages ?? [];
   const newNodes = new Array<GrokNode>();
@@ -87,7 +87,7 @@ export const createGrokNodesInOrder = async (
   });
 
   const nodesToCheck = newNodes.filter(node => node.id !== 'root');
-  const existingNodes = await checkNodes(nodesToCheck.map(node => node.data.text));
+  const existingNodes = await checkNodes(nodesToCheck.map(node => node.id));
   existingNodes.forEach((hidden: boolean, index: number) => {
     if (nodesToCheck[index]) {
       nodesToCheck[index]!.data!.hidden = hidden;

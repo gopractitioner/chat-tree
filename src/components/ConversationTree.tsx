@@ -136,8 +136,8 @@ const ConversationTree = () => {
         }))
       );
     } else if (provider === 'grok') {
-      const nodeTexts = nodes.map((node: any) => node.data?.text ?? '');
-      const existingNodes = await checkNodesGrok(nodeTexts);
+      const nodeIds = nodes.map((node: any) => node.id);
+      const existingNodes = await checkNodesGrok(nodeIds);
       setNodes((prevNodes: any) =>
         prevNodes.map((node: any, index: number) => ({
           ...node,
