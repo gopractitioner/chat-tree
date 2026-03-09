@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ReactFlow, addEdge, Connection, MiniMap, Controls, Background, BackgroundVariant, NodeTypes } from '@xyflow/react';
 import { ContextMenu } from './ContextMenu';
 import { LoadingSpinner, ErrorState } from "./LoadingStates";
@@ -16,7 +16,7 @@ import { CustomNode } from "./CustomNode";
 import { SearchBar } from './SearchBar';
 import { OpenAIConversationData, ClaudeConversation, ClaudeNode, GrokConversation, GrokNode } from '../types/interfaces';
 import { calculateStepsClaude } from '../utils/nodeNavigationClaude';
-import { calculateStepsGrok } from '../utils/nodeNavigationGrok';
+import { calculateStepsGrok, computeVisiblePath, deriveLastActiveChildMap } from '../utils/nodeNavigationGrok';
 import '@xyflow/react/dist/style.css';
 
 const nodeTypes: NodeTypes = {
@@ -56,7 +56,13 @@ const ConversationTree = () => {
 
   const [showSearch, setShowSearch] = useState(false);
   const [lastActiveChildMap, setLastActiveChildMap] = useState<Record<string, string>>({});
+  const lastActiveChildMapRef = useRef<Record<string, string>>({});
   const [previousPathNodeIds, setPreviousPathNodeIds] = useState<Set<string>>(new Set());
+
+  // Keep ref in sync so stale closures (e.g. setTimeout, async callbacks) always read latest map
+  useEffect(() => {
+    lastActiveChildMapRef.current = lastActiveChildMap;
+  }, [lastActiveChildMap]);
 
   // Create nodes and edges when conversation data changes
   useEffect(() => {
@@ -71,9 +77,24 @@ const ConversationTree = () => {
       createNodes(conversationData as any)
         .then(({ nodes: newNodes, edges: newEdges }) => {
           chrome.runtime.sendMessage({ action: "log", message: `Created ${newNodes.length} nodes and ${newEdges.length} edges` });
-          setNodes(newNodes as any);
           setEdges(newEdges as any);
           setIsLoading(false);
+
+          if (provider === 'grok') {
+            // DOM-based hidden flags may be incomplete due to virtual scrolling.
+            // Derive the active path from the DOM-visible nodes, then use computeVisiblePath
+            // to propagate visibility upward to scrolled-off ancestors on the same branch.
+            const initialMap = deriveLastActiveChildMap(newNodes as GrokNode[]);
+            lastActiveChildMapRef.current = initialMap;
+            setLastActiveChildMap(initialMap);
+            const visibleIds = computeVisiblePath(newNodes as GrokNode[], initialMap);
+            setNodes((newNodes as GrokNode[]).map(node => ({
+              ...node,
+              data: { ...node.data, hidden: !visibleIds.has(node.id) }
+            })) as any);
+          } else {
+            setNodes(newNodes as any);
+          }
         })
         .catch(error => {
           chrome.runtime.sendMessage({ action: "log", message: "Error creating nodes: " + error.message });
@@ -136,12 +157,13 @@ const ConversationTree = () => {
         }))
       );
     } else if (provider === 'grok') {
-      const nodeIds = nodes.map((node: any) => node.id);
-      const existingNodes = await checkNodesGrok(nodeIds);
+      // Use the ref (always current, even in stale closures) to derive the visible path
+      // purely from tree structure, avoiding DOM-presence checks that break under virtual scrolling.
+      const visibleIds = computeVisiblePath(nodes as GrokNode[], lastActiveChildMapRef.current);
       setNodes((prevNodes: any) =>
-        prevNodes.map((node: any, index: number) => ({
+        prevNodes.map((node: any) => ({
           ...node,
-          data: { ...node.data, hidden: existingNodes[index] }
+          data: { ...node.data, hidden: !visibleIds.has(node.id) }
         }))
       );
     } else {
@@ -200,10 +222,6 @@ const ConversationTree = () => {
       return calculateSteps(nodes, messageId);
     }
 
-    const parentEdge = typedEdges.find(edge => edge.target === messageId);
-    if (parentEdge) {
-      setLastActiveChildMap(prev => ({ ...prev, [parentEdge.source]: messageId }));
-    }
     const currentlyVisibleNodes = new Set(
       nodes.filter((node: any) => !node.data?.hidden).map((node: any) => node.id)
     );
@@ -212,6 +230,27 @@ const ConversationTree = () => {
     const steps = provider === 'claude'
       ? calculateStepsClaude(nodes as ClaudeNode[], messageId, lastActiveChildMap)
       : calculateStepsGrok(nodes as GrokNode[], messageId, lastActiveChildMap);
+
+    if (provider === 'grok') {
+      // Record every ancestor→child entry along the full path to the target node so that
+      // computeVisiblePath can trace the complete new branch after branch switches execute.
+      const nodeMap = new Map((nodes as GrokNode[]).map(n => [n.id, n]));
+      const newMap = { ...lastActiveChildMap };
+      let currentId = messageId;
+      while (true) {
+        const current = nodeMap.get(currentId);
+        if (!current?.parent) break;
+        newMap[current.parent] = currentId;
+        currentId = current.parent;
+      }
+      lastActiveChildMapRef.current = newMap;
+      setLastActiveChildMap(newMap);
+    } else {
+      const parentEdge = typedEdges.find(edge => edge.target === messageId);
+      if (parentEdge) {
+        setLastActiveChildMap(prev => ({ ...prev, [parentEdge.source]: messageId }));
+      }
+    }
 
     setTimeout(() => updateNodesVisibility(), 100);
     return steps;
