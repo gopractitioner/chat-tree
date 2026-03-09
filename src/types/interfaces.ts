@@ -193,7 +193,7 @@ export interface ContextMenuProps {
 
 export type ConversationProvider = 'openai' | 'claude' | 'grok';
 
-// --- Interfaces for Grok Conversation Structure (placeholder until API is reverse-engineered) ---
+// Interfaces for Grok conversation structure (may evolve with API changes)
 
 export interface GrokMessage {
     id: string;

@@ -1391,7 +1391,6 @@ async function goToTargetClaude(targetText: string) {
   })
 }
 
-// Grok: placeholder DOM logic; update selectors when grok.com structure is known
 async function checkNodesExistenceGrok(nodeIds: string[] | undefined) {
   if (!nodeIds || !Array.isArray(nodeIds)) {
     throw new Error('Invalid nodeIds provided');
@@ -1427,7 +1426,7 @@ async function selectBranchGrok(stepsToTake: any[]) {
       for (const step of stepsToTake) {
         const el = document.getElementById('response-' + step.nodeId);
         if (!el) continue;
-        const ariaLabel = step.stepsLeft > 0 ? '上一条消息' : '下一条消息';
+        const ariaLabel = step.stepsLeft > 0 ? 'Previous message' : 'Next message';
         const btn = el.querySelector(`button[aria-label="${ariaLabel}"]`) as HTMLButtonElement | null;
         if (btn && !btn.disabled) btn.click();
       }
