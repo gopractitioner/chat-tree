@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
-import { ClaudeNode, ConversationProvider, OpenAINode, ClaudeContentBlock } from '../types/interfaces';
+import { ClaudeNode, ConversationProvider, OpenAINode, ClaudeContentBlock, GrokNode } from '../types/interfaces';
 
 interface SearchBarProps {
-  nodes: OpenAINode[] | ClaudeNode[];
+  nodes: OpenAINode[] | ClaudeNode[] | GrokNode[];
   onNodeClick: (messageId: string) => any[];
   onClose: () => void;
   onRefresh: () => void;
@@ -11,7 +11,7 @@ interface SearchBarProps {
 
 interface SearchResult {
   nodeId: string;
-  node: OpenAINode | ClaudeNode;
+  node: OpenAINode | ClaudeNode | GrokNode;
   matches: number;
   preview: string;
 }
@@ -42,17 +42,10 @@ export const SearchBar = ({ nodes, onNodeClick, onClose, onRefresh, provider }: 
         if (selectedResult) {
           const steps = onNodeClick(selectedResult.nodeId);
           if (steps) {
-            chrome.runtime.sendMessage({ 
-              action: provider === 'openai' ? "executeSteps" : "executeStepsClaude", 
-              steps: steps,
-              requireCompletion: true
-            }).then(() => {
-              chrome.runtime.sendMessage({ 
-                action: "goToTarget", 
-                targetId: selectedResult.nodeId 
-              }).then(() => {
-                onRefresh();
-              });
+            const execAction = provider === 'openai' ? 'executeSteps' : provider === 'claude' ? 'executeStepsClaude' : 'executeStepsGrok';
+            const goAction = provider === 'openai' ? 'goToTarget' : provider === 'claude' ? 'goToTargetClaude' : 'goToTargetGrok';
+            chrome.runtime.sendMessage({ action: execAction, steps, requireCompletion: true }).then(() => {
+              chrome.runtime.sendMessage({ action: goAction, targetId: selectedResult.nodeId }).then(() => onRefresh());
             });
           }
           onClose();
@@ -79,8 +72,9 @@ export const SearchBar = ({ nodes, onNodeClick, onClose, onRefresh, provider }: 
 
       if (provider === 'openai') {
         content = node.data?.label || '';
+      } else if (provider === 'grok') {
+        content = (node as GrokNode).data?.text ?? node.data?.label ?? '';
       } else {
-        // For Claude, get content from message blocks
         const claudeNode = node as ClaudeNode;
         content = (claudeNode.message?.content || [])
           .filter((block: ClaudeContentBlock) => block.type === 'text')
@@ -96,7 +90,7 @@ export const SearchBar = ({ nodes, onNodeClick, onClose, onRefresh, provider }: 
       if (matches > 0) {
         // Create a preview with highlighted matches
         const preview = content.slice(0, 100) + (content.length > 100 ? '...' : '');
-        
+
         searchResults.push({
           nodeId: node.id,
           node,
@@ -121,17 +115,10 @@ export const SearchBar = ({ nodes, onNodeClick, onClose, onRefresh, provider }: 
   const handleResultClick = (result: SearchResult) => {
     const steps = onNodeClick(result.nodeId);
     if (steps) {
-      chrome.runtime.sendMessage({ 
-        action: provider === 'openai' ? "executeSteps" : "executeStepsClaude", 
-        steps: steps,
-        requireCompletion: true
-      }).then(() => {
-        chrome.runtime.sendMessage({ 
-          action: "goToTarget", 
-          targetId: result.nodeId 
-        }).then(() => {
-          onRefresh();
-        });
+      const execAction = provider === 'openai' ? 'executeSteps' : provider === 'claude' ? 'executeStepsClaude' : 'executeStepsGrok';
+      const goAction = provider === 'openai' ? 'goToTarget' : provider === 'claude' ? 'goToTargetClaude' : 'goToTargetGrok';
+      chrome.runtime.sendMessage({ action: execAction, steps, requireCompletion: true }).then(() => {
+        chrome.runtime.sendMessage({ action: goAction, targetId: result.nodeId }).then(() => onRefresh());
       });
     }
     onClose();
@@ -155,7 +142,7 @@ export const SearchBar = ({ nodes, onNodeClick, onClose, onRefresh, provider }: 
             </kbd>
           </div>
         </div>
-        
+
         {results.length > 0 ? (
           <>
             <div className="border-t border-gray-200" />
@@ -164,17 +151,16 @@ export const SearchBar = ({ nodes, onNodeClick, onClose, onRefresh, provider }: 
                 <button
                   key={result.nodeId}
                   onClick={() => handleResultClick(result)}
-                  className={`w-full px-4 py-3 text-left hover:bg-gray-50 focus:outline-none ${
-                    index === selectedIndex ? 'bg-gray-50' : ''
-                  }`}
+                  className={`w-full px-4 py-3 text-left hover:bg-gray-50 focus:outline-none ${index === selectedIndex ? 'bg-gray-50' : ''
+                    }`}
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-2">
                       <span className="text-sm font-medium text-gray-900">
-                        {result.node.data?.role === (provider === 'openai' ? 'user' : 'human') ? 'You' : 'Assistant'}
+                        {result.node.data?.role === 'user' || result.node.data?.role === 'human' ? 'You' : 'Assistant'}
                       </span>
                       <span className="text-sm text-gray-500">
-                        {new Date((result.node.data?.timestamp || 0) * 1000).toLocaleString()}
+                        {result.node.data?.timestamp ? new Date(result.node.data.timestamp).toLocaleString() : ''}
                       </span>
                     </div>
                     <span className="text-xs text-gray-500">

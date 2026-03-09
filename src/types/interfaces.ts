@@ -79,19 +79,19 @@ export interface OpenAIMetaData {
 }
 
 export interface OpenAICitationMetadata {
-        type: string;
-        title: string;
-        url: string;
-        text: string;
-        pub_date: string | null;
-        extra: {
-            cited_message_idx: number;
-            search_result_idx: number | null;
-            evidence_text: string;
-            start_line_num: number;
-            end_line_num: number;
-        };
-        og_tags: any | null;
+    type: string;
+    title: string;
+    url: string;
+    text: string;
+    pub_date: string | null;
+    extra: {
+        cited_message_idx: number;
+        search_result_idx: number | null;
+        evidence_text: string;
+        start_line_num: number;
+        end_line_num: number;
+    };
+    og_tags: any | null;
 }
 
 export interface OpenAICitation {
@@ -166,10 +166,10 @@ export type OpenAIMenuState = {
     message: string; // Likely message content preview
     childrenIds: string[];
     role: string;
-    top: number | boolean;
-    left: number | boolean;
-    right: number | boolean;
-    bottom: number | boolean;
+    top: number | false;
+    left: number | false;
+    right: number | false;
+    bottom: number | false;
     hidden?: boolean;
 } | null;
 
@@ -180,10 +180,10 @@ export interface ContextMenuProps {
     childrenIds?: string[];
     childrenTexts?: string[];
     role: string;
-    top: number | boolean;
-    left: number | boolean;
-    right: number | boolean;
-    bottom: number | boolean;
+    top: number | false;
+    left: number | false;
+    right: number | false;
+    bottom: number | false;
     hidden?: boolean;
     onClick?: () => void;
     onNodeClick: (messageId: string) => any[]; // Function to handle node clicks
@@ -191,7 +191,60 @@ export interface ContextMenuProps {
     refreshNodes: () => void; // Function to refresh nodes
 }
 
-export type ConversationProvider = 'openai' | 'claude';
+export type ConversationProvider = 'openai' | 'claude' | 'grok';
+
+// Interfaces for Grok conversation structure (may evolve with API changes)
+
+export interface GrokMessage {
+    id: string;
+    parent_id?: string | null;
+    role: 'user' | 'assistant' | string;
+    content: unknown; // text or structured; refine when API is known
+    created_at?: string;
+    updated_at?: string;
+    [key: string]: unknown;
+}
+
+export interface GrokConversation {
+    id: string;
+    title?: string;
+    name?: string;
+    created_at?: string;
+    updated_at?: string;
+    grok_messages?: GrokMessage[]; // normalized list for tree building
+    messages?: GrokMessage[];
+    [key: string]: unknown;
+}
+
+export interface GrokNodeData {
+    label: string;
+    text: string;
+    role: string;
+    hidden?: boolean;
+    timestamp?: number;
+    id?: string;
+    contentType?: string;
+    model_slug?: string;
+}
+
+export interface GrokNode extends BaseNode {
+    message: GrokMessage | null;
+    data: GrokNodeData;
+}
+
+export interface GrokEdge extends BaseEdge { }
+
+export interface GrokMenuState {
+    messageId: string;
+    message: string;
+    childrenTexts: string[];
+    role: string;
+    top: number | false;
+    left: number | false;
+    right: number | false;
+    bottom: number | false;
+    hidden?: boolean;
+}
 
 // Common interfaces for both providers
 export interface BaseNode {
@@ -200,7 +253,7 @@ export interface BaseNode {
     data?: {
         label: string;
         role?: string;
-        timestamp?: number;
+        timestamp?: number; // milliseconds since epoch
         id?: string;
         hidden?: boolean;
         contentType?: string;
@@ -232,30 +285,30 @@ export interface ClaudeNode extends BaseNode {
 }
 
 // Update OpenAIEdge to extend BaseEdge
-export interface OpenAIEdge extends BaseEdge {}
+export interface OpenAIEdge extends BaseEdge { }
 
 // New ClaudeEdge interface
-export interface ClaudeEdge extends BaseEdge {}
+export interface ClaudeEdge extends BaseEdge { }
 
 export interface ClaudeNodeData {
-  label: string;  // Required by BaseNode
-  text: string;
-  role: string;
-  hidden?: boolean;
-  timestamp?: number;
-  id?: string;
-  contentType?: string;
-  model_slug?: string;
+    label: string;  // Required by BaseNode
+    text: string;
+    role: string;
+    hidden?: boolean;
+    timestamp?: number;
+    id?: string;
+    contentType?: string;
+    model_slug?: string;
 }
 
 export interface ClaudeMenuState {
-  messageId: string;
-  message: string;
-  childrenTexts: string[];
-  role: string;
-  top: number | false;
-  left: number | false;
-  right: number | false;
-  bottom: number | false;
-  hidden?: boolean;
+    messageId: string;
+    message: string;
+    childrenTexts: string[];
+    role: string;
+    top: number | false;
+    left: number | false;
+    right: number | false;
+    bottom: number | false;
+    hidden?: boolean;
 }

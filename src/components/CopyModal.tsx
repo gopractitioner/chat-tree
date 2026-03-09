@@ -6,7 +6,7 @@ interface CopyModalProps {
   onCopy: (selectedNodeIds: string[]) => void;
   nodes: OpenAINode[];
   onNodeClick?: (nodeId: string) => void;
-  provider?: 'openai' | 'claude';
+  provider?: 'openai' | 'claude' | 'grok';
 }
 
 export const CopyModal = ({ onClose, onCopy, nodes, onNodeClick, provider = 'openai' }: CopyModalProps) => {
@@ -43,10 +43,9 @@ export const CopyModal = ({ onClose, onCopy, nodes, onNodeClick, provider = 'ope
     e.preventDefault();
     if (onNodeClick) {
       try {
-        await chrome.runtime.sendMessage({ 
-          action: provider === 'openai' ? "goToTarget" : "goToTargetClaude", 
-          targetId: provider === 'openai' ? node.id : node.data?.label
-        });
+        const goAction = provider === 'openai' ? 'goToTarget' : provider === 'claude' ? 'goToTargetClaude' : 'goToTargetGrok';
+        const targetId = provider === 'openai' ? node.id : provider === 'claude' ? node.data?.label : node.id;
+        await chrome.runtime.sendMessage({ action: goAction, targetId });
       } catch (error) {
         console.error('Error navigating to target:', error);
       }
@@ -62,7 +61,7 @@ export const CopyModal = ({ onClose, onCopy, nodes, onNodeClick, provider = 'ope
           <br />
           <span className="text-xs text-gray-500">Right-click a message to navigate to it in the conversation.</span>
         </p>
-        
+
         <div className="flex gap-2 mb-4">
           <button
             onClick={handleSelectAll}
@@ -82,11 +81,10 @@ export const CopyModal = ({ onClose, onCopy, nodes, onNodeClick, provider = 'ope
           {visibleNodes.map(node => (
             <div
               key={node.id}
-              className={`p-3 border-b border-gray-200 last:border-b-0 cursor-pointer transition-colors ${
-                selectedNodeIds.includes(node.id)
-                  ? 'bg-blue-100 hover:bg-blue-200'
-                  : 'hover:bg-gray-50'
-              }`}
+              className={`p-3 border-b border-gray-200 last:border-b-0 cursor-pointer transition-colors ${selectedNodeIds.includes(node.id)
+                ? 'bg-blue-100 hover:bg-blue-200'
+                : 'hover:bg-gray-50'
+                }`}
               onClick={() => handleNodeToggle(node.id)}
               onContextMenu={(e) => handleContextMenu(e, node)}
             >
@@ -95,7 +93,7 @@ export const CopyModal = ({ onClose, onCopy, nodes, onNodeClick, provider = 'ope
                   {node.data?.role === 'user' ? 'You' : 'Assistant'}
                 </span>
                 <span className="text-xs text-gray-500">
-                  {node.data?.timestamp ? new Date(node.data.timestamp * 1000).toLocaleString() : ''}
+                  {node.data?.timestamp ? new Date(node.data.timestamp).toLocaleString() : ''}
                 </span>
               </div>
               <div className="mt-1 text-sm text-gray-700 line-clamp-2">
@@ -115,11 +113,10 @@ export const CopyModal = ({ onClose, onCopy, nodes, onNodeClick, provider = 'ope
           <button
             onClick={handleCopy}
             disabled={selectedNodeIds.length === 0}
-            className={`px-4 py-2 text-sm text-white rounded-lg transition-colors ${
-              selectedNodeIds.length === 0
-                ? 'bg-gray-400 cursor-not-allowed'
-                : 'bg-blue-500 hover:bg-blue-600'
-            }`}
+            className={`px-4 py-2 text-sm text-white rounded-lg transition-colors ${selectedNodeIds.length === 0
+              ? 'bg-gray-400 cursor-not-allowed'
+              : 'bg-blue-500 hover:bg-blue-600'
+              }`}
           >
             {showCopied ? 'Copied!' : 'Copy Selected'}
           </button>

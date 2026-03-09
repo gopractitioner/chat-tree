@@ -16,25 +16,25 @@ export const ExportButton = ({ nodes, conversationData, className }: ExportButto
 
     // Sort citations by start_ix to process them in order
     const sortedCitations = [...citations].sort((a, b) => a.start_ix - b.start_ix);
-    
+
     // Process citations from end to start to avoid index shifting
     let processedContent = content;
     for (let i = sortedCitations.length - 1; i >= 0; i--) {
       const citation = sortedCitations[i];
       const { start_ix, end_ix, metadata } = citation;
-      
+
       // Extract the cited text
       const citedText = content.substring(start_ix, end_ix);
-      
+
       // Create the reference based on format
-      const reference = format === 'markdown' 
+      const reference = format === 'markdown'
         ? `[${citedText}](${metadata.url})`
         : `[[${citedText}]](${metadata.url})`;
-      
+
       // Replace the text with the reference
-      processedContent = processedContent.substring(0, start_ix) + 
-                        reference + 
-                        processedContent.substring(end_ix);
+      processedContent = processedContent.substring(0, start_ix) +
+        reference +
+        processedContent.substring(end_ix);
     }
 
     // Remove any remaining citation placeholders (like 【32†L307-L315】)
@@ -69,7 +69,7 @@ export const ExportButton = ({ nodes, conversationData, className }: ExportButto
       visibleNodes.forEach(node => {
         const role = node.data?.role === 'user' ? 'You' : (node.data?.role || 'unknown');
         const messageContent = node.data?.label || '';
-        const timestamp = node.data?.timestamp ? new Date(node.data.timestamp * 1000).toLocaleString() : '';
+        const timestamp = node.data?.timestamp ? new Date(node.data.timestamp).toLocaleString() : '';
         const model = node.data?.model_slug ? ` (${node.data.model_slug})` : '';
         const citations = node.message?.metadata?.citations || [];
 
@@ -113,7 +113,7 @@ export const ExportButton = ({ nodes, conversationData, className }: ExportButto
       visibleNodes.forEach(node => {
         const role = node.data?.role === 'user' ? 'You' : (node.data?.role || 'unknown');
         const messageContent = node.data?.label || '';
-        const timestamp = node.data?.timestamp ? new Date(node.data.timestamp * 1000).toLocaleString() : '';
+        const timestamp = node.data?.timestamp ? new Date(node.data.timestamp).toLocaleString() : '';
         const model = node.data?.model_slug ? ` using ${node.data.model_slug}` : '';
         const citations = node.message?.metadata?.citations || [];
 
@@ -125,10 +125,10 @@ export const ExportButton = ({ nodes, conversationData, className }: ExportButto
         } else {
           content += `>[!note] Assistant${model}\n`;
         }
-        
+
         content += processedContent.split('\n').map(line => `>${line}`).join('\n');
         content += '\n\n';
-        
+
         if (timestamp) {
           content += `^[${timestamp}]\n\n`;
         }
@@ -150,7 +150,7 @@ export const ExportButton = ({ nodes, conversationData, className }: ExportButto
       // XML format with citations
       content = `<?xml version="1.0" encoding="UTF-8"?>\n`;
       content += `<conversation title="${conversationData.title || 'ChatGPT Conversation'}" created="${new Date(conversationData.create_time * 1000).toISOString()}">\n`;
-      
+
       // Collect all citations from all messages
       const allCitations: any[] = [];
 
@@ -164,7 +164,7 @@ export const ExportButton = ({ nodes, conversationData, className }: ExportButto
       visibleNodes.forEach(node => {
         const role = node.data?.role === 'user' ? 'You' : (node.data?.role || 'unknown');
         const messageContent = node.data?.label || '';
-        const timestamp = node.data?.timestamp ? new Date(node.data.timestamp * 1000).toISOString() : '';
+        const timestamp = node.data?.timestamp ? new Date(node.data.timestamp).toISOString() : '';
         const model = node.data?.model_slug || '';
 
         content += `  <message role="${role}" model="${model}" timestamp="${timestamp}">\n`;

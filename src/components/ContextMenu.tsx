@@ -38,7 +38,7 @@ export const ContextMenu = (props: ContextMenuProps) => {
         } else if (props.role === 'assistant') {
             await respondToMessage();
         }
-        
+
         setShowInput(false);
         setInputValue('');
         props.refreshNodes();
@@ -50,21 +50,21 @@ export const ContextMenu = (props: ContextMenuProps) => {
             await selectBranch();
         }
 
-        const action = props.provider === 'openai' ? 'editMessage' : 'editMessageClaude';
+        const action = props.provider === 'openai' ? 'editMessage' : props.provider === 'claude' ? 'editMessageClaude' : 'editMessageGrok';
         const messageId = props.provider === 'openai' ? props.messageId : props.message;
 
-        const response = await chrome.runtime.sendMessage({ 
-            action: action, 
-            messageId: messageId, 
+        const response = await chrome.runtime.sendMessage({
+            action: action,
+            messageId: messageId,
             message: inputValue,
             requireCompletion: true
         });
-        
+
         if (!response.completed) {
             console.error('Edit message failed:', response.error);
             return;
         }
-        
+
         await new Promise(resolve => setTimeout(resolve, 2000));
         props.refreshNodes();
     };
@@ -75,15 +75,15 @@ export const ContextMenu = (props: ContextMenuProps) => {
         }
 
         const childrenIds = props.provider === 'openai' ? props.childrenIds : props.childrenTexts;
-        const action = props.provider === 'openai' ? 'respondToMessage' : 'respondToMessageClaude';
+        const action = props.provider === 'openai' ? 'respondToMessage' : props.provider === 'claude' ? 'respondToMessageClaude' : 'respondToMessageGrok';
 
-        const response = await chrome.runtime.sendMessage({ 
-            action: action, 
-            childrenIds: childrenIds, 
+        const response = await chrome.runtime.sendMessage({
+            action: action,
+            childrenIds: childrenIds,
             message: inputValue,
             requireCompletion: true
         });
-        
+
         if (!response.completed) {
             console.error('Response message failed:', response.error);
             return;
@@ -94,18 +94,18 @@ export const ContextMenu = (props: ContextMenuProps) => {
     };
 
     const selectBranch = async () => {
-       
+
         if (!props.messageId) return;
 
         const steps = props.onNodeClick(props.messageId);
         if (!steps) return;
 
-        const action = props.provider === 'openai' ? 'executeSteps' : 'executeStepsClaude';
+        const action = props.provider === 'openai' ? 'executeSteps' : props.provider === 'claude' ? 'executeStepsClaude' : 'executeStepsGrok';
 
 
         try {
-            const execResponse = await chrome.runtime.sendMessage({ 
-                action: action, 
+            const execResponse = await chrome.runtime.sendMessage({
+                action: action,
                 steps: steps,
                 requireCompletion: true
             });
@@ -115,10 +115,9 @@ export const ContextMenu = (props: ContextMenuProps) => {
             }
 
             props.onRefresh();
-            await chrome.runtime.sendMessage({ 
-                action: props.provider === 'openai' ? "goToTarget" : "goToTargetClaude", 
-                targetId: props.provider === 'openai' ? props.messageId : props.message 
-            });
+            const goAction = props.provider === 'openai' ? 'goToTarget' : props.provider === 'claude' ? 'goToTargetClaude' : 'goToTargetGrok';
+            const goTargetId = props.provider === 'openai' ? props.messageId : props.provider === 'claude' ? props.message : props.messageId;
+            await chrome.runtime.sendMessage({ action: goAction, targetId: goTargetId });
         } catch (error) {
             console.error('Error executing steps:', error);
         }
@@ -133,10 +132,9 @@ export const ContextMenu = (props: ContextMenuProps) => {
         bottom: typeof props.bottom === 'number' ? `${props.bottom}px` : undefined,
     });
 
-    // Check if node has children based on provider
-    const hasChildren = props.provider === 'openai' 
-        ? props.childrenIds && props.childrenIds.length > 0
-        : props.childrenTexts && props.childrenTexts.length > 0;
+    const hasChildren = props.provider === 'openai'
+        ? !!(props.childrenIds && props.childrenIds.length > 0)
+        : !!(props.childrenTexts && props.childrenTexts.length > 0);
 
     return (
         <div
@@ -150,15 +148,15 @@ export const ContextMenu = (props: ContextMenuProps) => {
                 </div>
             )}
             <div className="mt-1 space-y-1">
-                <button 
-                    className="w-full px-2 py-1.5 text-sm text-left text-gray-700 hover:bg-gray-50 rounded transition-colors" 
+                <button
+                    className="w-full px-2 py-1.5 text-sm text-left text-gray-700 hover:bg-gray-50 rounded transition-colors"
                     onClick={selectBranch}
                 >
                     Select
                 </button>
                 {hasChildren && (
-                    <button 
-                        className="w-full px-2 py-1.5 text-sm text-left text-gray-700 hover:bg-gray-50 rounded transition-colors" 
+                    <button
+                        className="w-full px-2 py-1.5 text-sm text-left text-gray-700 hover:bg-gray-50 rounded transition-colors"
                         onClick={handleActionClick}
                     >
                         {props.role === 'user' || props.role === 'human' ? 'Edit this message' : 'Respond to this message'}
@@ -181,7 +179,7 @@ export const ContextMenu = (props: ContextMenuProps) => {
                             />
                             <div className="flex justify-between items-center mt-2">
                                 <span className="text-xs text-gray-500">Press ⌘+Enter to send</span>
-                                <button 
+                                <button
                                     onClick={handleSend}
                                     className="px-3 py-1 text-sm text-white bg-blue-500 rounded hover:bg-blue-600 transition-colors disabled:opacity-50"
                                     disabled={!inputValue.trim()}
